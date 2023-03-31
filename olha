@@ -1,17 +1,19 @@
 #!/usr/bin/env poetry run python3
+import glob
 import json
 import sys
-import tempfile
-from typing import Any, List
+from typing import Any, List, Optional
 import openai
 import os
+from uuid import uuid4
 
 openai.api_key = os.environ["OPEN_API_KEY"]
 
 base_prompt = [
     {
         "role": "system",
-        "content": "you are an expert python programmer copilot that assists in creating and refactoring python code.",
+        # "content": "you are a CLI bot helper that converts natural language prompts into the corresponding MacOS CLI command. don't give any explanations unless explicitly asked for, just output the command. If the suggested command is not native to MacOS and might not be available, provide instructions on how to install it.",
+        "content": "You are an expert mathematics and programming assistant. When asked a maths question you should respond in the most accurate way possible and display step by step instructions on how the solution was obtained. When presented with a programming question you should output code samples in markdown format for easy reading.",
     },
 ]
 
@@ -33,19 +35,30 @@ def generateCompletion(prompt: str, history: List[dict[str, Any]]):
     print()
 
 
-group_id = os.getpgrp()
-temp_filename = f"/tmp/history_{group_id}"
+history_files = glob.glob("/tmp/history_*")
+temp_filename = (
+    history_files[0] if len(history_files) > 0 else f"/tmp/history_{uuid4()}"
+)
+
 history = []
 
 if os.path.exists(temp_filename):
     with open(temp_filename, "r") as file:
         history = json.load(file)
 
-print(history)
+if sys.argv[1] == "--purge":
+    files_to_delete = glob.glob("/tmp/history_*")
+    for file in files_to_delete:
+        os.remove(file)
+elif sys.argv[1] == "--chat":
+    while True:
+        prompt = input("> ")
+        if prompt.lower() == "exit":
+            break
+        generateCompletion(prompt, history)
+else:
+    prompt = " ".join(sys.argv[1:])
+    generateCompletion(prompt, history)
 
-prompt = " ".join(sys.argv[1:])
-generateCompletion(prompt, history)
-
-if os.path.exists(temp_filename):
-    with open(temp_filename, "w") as file:
-        json.dump(history, file)
+with open(temp_filename, "w") as file:
+    json.dump(history[-10:], file)
