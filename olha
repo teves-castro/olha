@@ -2,7 +2,7 @@
 import glob
 import json
 import sys
-from typing import Any, List, Optional
+from typing import Any, List
 import openai
 import os
 from uuid import uuid4
@@ -12,27 +12,38 @@ openai.api_key = os.environ["OPEN_API_KEY"]
 base_prompt = [
     {
         "role": "system",
-        # "content": "you are a CLI bot helper that converts natural language prompts into the corresponding MacOS CLI command. don't give any explanations unless explicitly asked for, just output the command. If the suggested command is not native to MacOS and might not be available, provide instructions on how to install it.",
-        "content": "You are an expert mathematics and programming assistant. When asked a maths question you should respond in the most accurate way possible and display step by step instructions on how the solution was obtained. When presented with a programming question you should output code samples in markdown format for easy reading.",
+        "content": "you are a CLI bot helper that converts natural language prompts into the corresponding MacOS CLI command. Don't give any explanations and just output the command. If instead I give you command you should respond with an explanation of what it does.",
+        # "content": "You are an expert mathematics and programming assistant. When asked a maths question you should respond in the most accurate way possible and display step by step instructions on how the solution was obtained. When presented with a programming question you should output code samples in markdown format for easy reading.",
     },
 ]
 
 
-def generateCompletion(prompt: str, history: List[dict[str, Any]]):
+def generateCompletion(
+    prompt: str, history: List[dict[str, Any]], log: bool = False
+) -> str:
     history.append({"role": "user", "content": prompt})
-    finish_reason = None
-    while finish_reason != "stop":
-        result = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=base_prompt + history,
-            max_tokens=100,
-        )
-        choice = result["choices"][0]  # type: ignore
-        response = choice["message"]["content"]
-        history.append({"role": "assistant", "content": response})
-        finish_reason = choice["finish_reason"]
-        print(response, end=" ")
-    print()
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=base_prompt + history,
+        stream=True,
+    )
+    message = {}
+    for chunk in response:
+        delta = chunk["choices"][0]["delta"]  # type: ignore
+        if "role" in delta:
+            message = {**message, **delta}
+        if "content" in delta:
+            if log:
+                print(delta["content"], end="")
+            message = {
+                **message,
+                "content": message.get("content", "") + delta["content"],
+            }
+
+    history.append(message)
+    if log:
+        print()
+    return message["content"]
 
 
 history_files = glob.glob("/tmp/history_*")
@@ -55,10 +66,17 @@ elif sys.argv[1] == "--chat":
         prompt = input("> ")
         if prompt.lower() == "exit":
             break
-        generateCompletion(prompt, history)
+        generateCompletion(prompt, history, log=True)
+elif sys.argv[1] == "--exec":
+    prompt = " ".join(sys.argv[2:])
+    cmd = generateCompletion(prompt, history).replace("`", '"')
+    if "rm" in cmd:
+        print("Dangerous command:", cmd)
+    else:
+        os.system(cmd)
 else:
-    prompt = " ".join(sys.argv[1:])
-    generateCompletion(prompt, history)
+    prompt = " ".join(sys.argv[2:])
+    generateCompletion(prompt, history, log=True)
 
 with open(temp_filename, "w") as file:
     json.dump(history[-10:], file)
