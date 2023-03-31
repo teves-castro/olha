@@ -1,0 +1,51 @@
+#!/usr/bin/env poetry run python3
+import json
+import sys
+import tempfile
+from typing import Any, List
+import openai
+import os
+
+openai.api_key = os.environ["OPEN_API_KEY"]
+
+base_prompt = [
+    {
+        "role": "system",
+        "content": "you are an expert python programmer copilot that assists in creating and refactoring python code.",
+    },
+]
+
+
+def generateCompletion(prompt: str, history: List[dict[str, Any]]):
+    history.append({"role": "user", "content": prompt})
+    finish_reason = None
+    while finish_reason != "stop":
+        result = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=base_prompt + history,
+            max_tokens=100,
+        )
+        choice = result["choices"][0]  # type: ignore
+        response = choice["message"]["content"]
+        history.append({"role": "assistant", "content": response})
+        finish_reason = choice["finish_reason"]
+        print(response, end=" ")
+    print()
+
+
+group_id = os.getpgrp()
+temp_filename = f"/tmp/history_{group_id}"
+history = []
+
+if os.path.exists(temp_filename):
+    with open(temp_filename, "r") as file:
+        history = json.load(file)
+
+print(history)
+
+prompt = " ".join(sys.argv[1:])
+generateCompletion(prompt, history)
+
+if os.path.exists(temp_filename):
+    with open(temp_filename, "w") as file:
+        json.dump(history, file)
